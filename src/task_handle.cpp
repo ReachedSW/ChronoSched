@@ -10,8 +10,12 @@ void TaskHandle::cancel() const noexcept {
         return;
     }
 
-    std::lock_guard lock(state_->notifier_mutex);
-    if (state_->cancellation_notifier) state_->cancellation_notifier();
+    std::function<void()> notifier;
+    {
+        std::lock_guard lock(state_->notifier_mutex);
+        notifier = state_->cancellation_notifier;
+    }
+    if (notifier) notifier();
 }
 
 bool TaskHandle::is_cancelled() const noexcept {
@@ -24,8 +28,12 @@ TaskId TaskHandle::id() const noexcept {
 
 bool TaskHandle::reschedule_at(std::chrono::steady_clock::time_point deadline) const {
     if (!state_ || state_->cancelled.load(std::memory_order_acquire)) return false;
-    std::lock_guard lock(state_->notifier_mutex);
-    return state_->rescheduler && state_->rescheduler(deadline);
+    std::function<bool(std::chrono::steady_clock::time_point)> rescheduler;
+    {
+        std::lock_guard lock(state_->notifier_mutex);
+        rescheduler = state_->rescheduler;
+    }
+    return rescheduler && rescheduler(deadline);
 }
 
 } // namespace chronosched

@@ -60,7 +60,7 @@ private:
     [[nodiscard]] TaskHandle schedule_steady_at(std::chrono::steady_clock::time_point deadline, Callback callback,
                                                  TaskPriority priority = TaskPriority::Normal);
 
-    std::unique_ptr<Runtime> runtime_;
+    std::shared_ptr<Runtime> runtime_;
 };
 
 } // namespace chronosched

@@ -14,7 +14,7 @@
 
 namespace chronosched {
 
-class Scheduler::Runtime {
+class Scheduler::Runtime : public std::enable_shared_from_this<Scheduler::Runtime> {
 public:
     enum class Lifecycle { Pending, Dispatched, Running, Completed, Cancelled };
     struct Task {
@@ -30,10 +30,11 @@ public:
         return a.sequence < b.sequence;
     }};
 
-    explicit Runtime(SchedulerOptions options) {
-        const auto count = options.worker_threads == 0 ? std::size_t{1} : options.worker_threads;
+    explicit Runtime(SchedulerOptions options)
+        : worker_count_(options.worker_threads == 0 ? std::size_t{1} : options.worker_threads) {}
+    void start() {
         timer_ = std::thread([this] { timer_loop(); });
-        workers_.reserve(count); for (std::size_t i = 0; i < count; ++i) workers_.emplace_back([this] { worker_loop(); });
+        workers_.reserve(worker_count_); for (std::size_t i = 0; i < worker_count_; ++i) workers_.emplace_back([this] { worker_loop(); });
     }
     ~Runtime() { shutdown(ShutdownMode::CancelPending); }
     TaskHandle schedule(std::chrono::steady_clock::time_point deadline, Callback callback, TaskPriority priority,
@@ -74,12 +75,20 @@ private:
     static constexpr std::size_t max_execute_missed_burst = 64;
     void install_hooks_locked(const std::shared_ptr<Task>& task) {
         std::lock_guard hlock(task->state->notifier_mutex); std::weak_ptr<Task> weak = task;
-        task->state->cancellation_notifier = [this, weak] { if (const auto task = weak.lock()) { std::lock_guard lock(core_mutex_); cancel_locked(task); } timer_cv_.notify_one(); execution_cv_.notify_all(); };
-        task->state->rescheduler = [this, weak](std::chrono::steady_clock::time_point deadline) {
-            std::lock_guard lock(core_mutex_); const auto task = weak.lock();
-            if (!task || !accepting_ || task->state->cancelled.load() || task->lifecycle != Lifecycle::Pending) return false;
-            --queued_; enqueue_locked(task, deadline); if (task->repeating && task->repeat_mode == RepeatMode::FixedRate) task->rate_cursor = deadline;
-            timer_cv_.notify_one(); return true;
+        const std::weak_ptr<Runtime> runtime = weak_from_this();
+        task->state->cancellation_notifier = [runtime, weak] {
+            const auto self = runtime.lock(); const auto task = weak.lock();
+            if (!self || !task) return;
+            std::lock_guard lock(self->core_mutex_); self->cancel_locked(task);
+            self->timer_cv_.notify_one(); self->execution_cv_.notify_all();
+        };
+        task->state->rescheduler = [runtime, weak](std::chrono::steady_clock::time_point deadline) {
+            const auto self = runtime.lock(); const auto task = weak.lock();
+            if (!self || !task) return false;
+            std::lock_guard lock(self->core_mutex_);
+            if (!self->accepting_ || task->state->cancelled.load() || task->lifecycle != Lifecycle::Pending) return false;
+            --self->queued_; self->enqueue_locked(task, deadline); if (task->repeating && task->repeat_mode == RepeatMode::FixedRate) task->rate_cursor = deadline;
+            self->timer_cv_.notify_one(); return true;
         };
     }
     void cancel_locked(const std::shared_ptr<Task>& task) {
@@ -138,12 +147,12 @@ private:
         }
     }
     std::mutex core_mutex_; std::condition_variable timer_cv_; std::set<QueueEntry, QueueCompare> timed_; std::deque<Completion> completions_; std::map<TaskId, std::shared_ptr<Task>> tasks_; ErrorHandler error_handler_;
-    TaskId next_id_{0}; std::uint64_t next_sequence_{0}; bool accepting_{true}, shutdown_requested_{false}, drain_{false}, joined_{false}; std::atomic_bool timer_finished_{false}; std::thread timer_; std::mutex shutdown_mutex_;
+    TaskId next_id_{0}; std::uint64_t next_sequence_{0}; std::size_t worker_count_; bool accepting_{true}, shutdown_requested_{false}, drain_{false}, joined_{false}; std::atomic_bool timer_finished_{false}; std::thread timer_; std::mutex shutdown_mutex_;
     std::mutex execution_mutex_; std::condition_variable execution_cv_; std::deque<QueueEntry> execution_; std::vector<std::thread> workers_;
     std::atomic_size_t queued_{0}, running_{0}; std::atomic_uint64_t executed_{0}, cancelled_{0}, failures_{0}, late_{0};
 };
 
-Scheduler::Scheduler(SchedulerOptions options) : runtime_(std::make_unique<Runtime>(options)) {}
+Scheduler::Scheduler(SchedulerOptions options) : runtime_(std::make_shared<Runtime>(options)) { runtime_->start(); }
 Scheduler::~Scheduler() = default;
 TaskHandle Scheduler::schedule_steady_at(std::chrono::steady_clock::time_point d, Callback c, TaskPriority p) { return runtime_->schedule(d, std::move(c), p); }
 TaskHandle Scheduler::schedule_at(std::chrono::steady_clock::time_point d, Callback c) { return schedule_steady_at(d, std::move(c)); }
