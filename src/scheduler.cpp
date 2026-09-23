@@ -61,7 +61,8 @@ public:
             } else for (const auto& [id, task] : tasks_) if (task->repeating) { (void)id; cancel_locked(task); }
         }
         timer_cv_.notify_all(); execution_cv_.notify_all();
-        if (timer_.joinable()) timer_.join(); for (auto& worker : workers_) if (worker.joinable()) worker.join();
+        if (timer_.joinable()) timer_.join();
+        for (auto& worker : workers_) if (worker.joinable()) worker.join();
         std::vector<std::shared_ptr<detail::TaskState>> states;
         { std::lock_guard lock(core_mutex_); joined_ = true;
             for (const auto& [id, task] : tasks_) { (void)id; states.push_back(task->state); }
