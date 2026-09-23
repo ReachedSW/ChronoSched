@@ -253,3 +253,60 @@ TEST_CASE("destruction discards pending callbacks") {
     std::this_thread::sleep_for(130ms);
     CHECK_FALSE(invoked.load());
 }
+
+TEST_CASE("cancel-pending shutdown discards queued work and rejects scheduling") {
+    chronosched::Scheduler scheduler;
+    std::atomic_bool invoked{false};
+    (void)scheduler.schedule_after(1s, [&] { invoked = true; });
+    scheduler.shutdown(chronosched::ShutdownMode::CancelPending);
+    CHECK_FALSE(invoked.load());
+    CHECK(scheduler.stats().cancelled_tasks == 1);
+    CHECK_THROWS_AS(scheduler.schedule_after(0ms, [] {}), std::runtime_error);
+    scheduler.shutdown();
+}
+
+TEST_CASE("cancel-pending waits for an already running callback") {
+    chronosched::Scheduler scheduler;
+    std::promise<void> started, release;
+    auto release_future = release.get_future().share();
+    (void)scheduler.schedule_after(0ms, [&] { started.set_value(); release_future.wait(); });
+    REQUIRE(started.get_future().wait_for(500ms) == std::future_status::ready);
+    std::thread stopper([&] { scheduler.shutdown(); });
+    std::this_thread::sleep_for(10ms);
+    release.set_value(); stopper.join();
+    CHECK(scheduler.stats().running_tasks == 0);
+}
+
+TEST_CASE("drain executes accepted one-shot work and stops repeat recurrence") {
+    chronosched::Scheduler scheduler;
+    std::atomic_int once{0}, repeats{0};
+    (void)scheduler.schedule_after(10ms, [&] { ++once; });
+    (void)scheduler.schedule_every(5ms, [&] { ++repeats; });
+    scheduler.shutdown(chronosched::ShutdownMode::Drain);
+    CHECK(once.load() == 1);
+    CHECK(repeats.load() == 0);
+    CHECK_THROWS_AS(scheduler.schedule_after(0ms, [] {}), std::runtime_error);
+}
+
+TEST_CASE("statistics report executions cancellations and callback failures") {
+    chronosched::Scheduler scheduler;
+    std::promise<void> done;
+    (void)scheduler.schedule_after(0ms, [&] { done.set_value(); });
+    const auto cancelled = scheduler.schedule_after(1s, [] {});
+    cancelled.cancel();
+    (void)scheduler.schedule_after(0ms, [] { throw std::runtime_error("expected"); });
+    REQUIRE(done.get_future().wait_for(500ms) == std::future_status::ready);
+    std::this_thread::sleep_for(20ms);
+    const auto stats = scheduler.stats();
+    CHECK(stats.executed_callbacks >= 2);
+    CHECK(stats.cancelled_tasks == 1);
+    CHECK(stats.callback_failures == 1);
+}
+
+TEST_CASE("rescheduling preserves the logical queued statistic") {
+    chronosched::Scheduler scheduler;
+    const auto task = scheduler.schedule_after(1s, [] {});
+    REQUIRE(scheduler.stats().queued_tasks == 1);
+    REQUIRE(task.reschedule_after(1s));
+    CHECK(scheduler.stats().queued_tasks == 1);
+}
