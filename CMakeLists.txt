@@ -87,5 +87,7 @@ if(CHRONOSCHED_BUILD_TESTS)
     elseif(MSVC)
         target_compile_options(chronosched_tests PRIVATE /W4 /FS)
     endif()
-    add_test(NAME chronosched_tests COMMAND chronosched_tests --no-pause)
+    include(Catch)
+    catch_discover_tests(chronosched_tests
+        PROPERTIES TIMEOUT 60)
 endif()
