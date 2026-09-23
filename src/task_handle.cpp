@@ -11,9 +11,7 @@ void TaskHandle::cancel() const noexcept {
     }
 
     std::lock_guard lock(state_->notifier_mutex);
-    if (state_->cancellation_notifier) {
-        state_->cancellation_notifier();
-    }
+    if (state_->cancellation_notifier) state_->cancellation_notifier();
 }
 
 bool TaskHandle::is_cancelled() const noexcept {

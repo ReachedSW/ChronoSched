@@ -52,6 +52,8 @@ public:
                                              TaskPriority priority = TaskPriority::Normal);
 
     void set_error_handler(ErrorHandler handler);
+    void shutdown(ShutdownMode mode = ShutdownMode::CancelPending);
+    [[nodiscard]] SchedulerStats stats() const noexcept;
 
 private:
     class Runtime;
