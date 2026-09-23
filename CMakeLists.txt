@@ -35,6 +35,7 @@ if(CHRONOSCHED_BUILD_TESTS)
 
     add_executable(chronosched_tests tests/scheduler_tests.cpp)
     target_link_libraries(chronosched_tests PRIVATE ChronoSched::chronosched Catch2::Catch2WithMain)
+    target_include_directories(chronosched_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(chronosched_tests PRIVATE -Wall -Wextra -Wpedantic)
     endif()

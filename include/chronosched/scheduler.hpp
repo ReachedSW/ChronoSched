@@ -15,7 +15,7 @@ public:
     using Callback = std::function<void()>;
     using ErrorHandler = std::function<void(TaskId, std::exception_ptr)>;
 
-    Scheduler();
+    explicit Scheduler(SchedulerOptions options = {});
     ~Scheduler();
 
     Scheduler(const Scheduler&) = delete;
@@ -32,14 +32,31 @@ public:
         return schedule_steady_at(std::chrono::steady_clock::now() + converted, std::move(callback));
     }
 
+    template <class Rep, class Period>
+    [[nodiscard]] TaskHandle schedule_after(std::chrono::duration<Rep, Period> delay, Callback callback,
+                                             TaskPriority priority) {
+        if (delay < std::chrono::duration<Rep, Period>::zero()) {
+            throw std::invalid_argument("ChronoSched does not accept negative delays");
+        }
+        const auto converted = std::chrono::duration_cast<std::chrono::steady_clock::duration>(delay);
+        return schedule_steady_at(std::chrono::steady_clock::now() + converted, std::move(callback), priority);
+    }
+
     [[nodiscard]] TaskHandle schedule_at(std::chrono::steady_clock::time_point deadline, Callback callback);
+    [[nodiscard]] TaskHandle schedule_at(std::chrono::steady_clock::time_point deadline, Callback callback,
+                                         TaskPriority priority);
     [[nodiscard]] TaskHandle schedule_at(std::chrono::system_clock::time_point deadline, Callback callback);
+    [[nodiscard]] TaskHandle schedule_every(std::chrono::steady_clock::duration interval, Callback callback,
+                                             RepeatMode mode = RepeatMode::FixedDelay,
+                                             CatchUpPolicy catch_up = CatchUpPolicy::SkipMissed,
+                                             TaskPriority priority = TaskPriority::Normal);
 
     void set_error_handler(ErrorHandler handler);
 
 private:
     class Runtime;
-    [[nodiscard]] TaskHandle schedule_steady_at(std::chrono::steady_clock::time_point deadline, Callback callback);
+    [[nodiscard]] TaskHandle schedule_steady_at(std::chrono::steady_clock::time_point deadline, Callback callback,
+                                                 TaskPriority priority = TaskPriority::Normal);
 
     std::unique_ptr<Runtime> runtime_;
 };
