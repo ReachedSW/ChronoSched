@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {"name":"base","hidden":true,"binaryDir":"${sourceDir}/build/preset-${presetName}"},
+    {"name":"debug","inherits":"base","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug","CHRONOSCHED_BUILD_TESTS":"ON","CHRONOSCHED_BUILD_EXAMPLES":"ON"}},
+    {"name":"release","inherits":"base","cacheVariables":{"CMAKE_BUILD_TYPE":"Release","CHRONOSCHED_BUILD_TESTS":"ON","CHRONOSCHED_BUILD_EXAMPLES":"ON"}},
+    {"name":"asan","inherits":"debug","cacheVariables":{"CHRONOSCHED_ENABLE_ASAN":"ON"}},
+    {"name":"tsan","inherits":"debug","cacheVariables":{"CHRONOSCHED_ENABLE_TSAN":"ON"}}
+  ]
+}
