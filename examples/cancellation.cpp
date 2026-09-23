@@ -12,4 +12,6 @@ int main() {
     task.cancel();
     std::this_thread::sleep_for(120ms);
     std::cout << "Cancelled: " << std::boolalpha << task.is_cancelled() << '\n';
+    std::cout << "Press Enter to close...";
+    std::cin.get();
 }

@@ -11,4 +11,6 @@ int main() {
     [[maybe_unused]] const auto task =
         scheduler.schedule_after(20ms, [] { std::cout << "ChronoSched task executed\n"; });
     std::this_thread::sleep_for(50ms);
+    std::cout << "Press Enter to close...";
+    std::cin.get();
 }
