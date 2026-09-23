@@ -74,18 +74,25 @@ public:
 private:
     static constexpr std::size_t max_execute_missed_burst = 64;
     void install_hooks_locked(const std::shared_ptr<Task>& task) {
-        std::lock_guard hlock(task->state->notifier_mutex); std::weak_ptr<Task> weak = task;
+        std::lock_guard hlock(task->state->notifier_mutex);
         const std::weak_ptr<Runtime> runtime = weak_from_this();
-        task->state->cancellation_notifier = [runtime, weak] {
-            const auto self = runtime.lock(); const auto task = weak.lock();
-            if (!self || !task) return;
-            std::lock_guard lock(self->core_mutex_); self->cancel_locked(task);
+        const TaskId id = task->id;
+        task->state->cancellation_notifier = [runtime, id] {
+            const auto self = runtime.lock();
+            if (!self) return;
+            std::lock_guard lock(self->core_mutex_);
+            const auto found = self->tasks_.find(id);
+            if (found == self->tasks_.end()) return;
+            self->cancel_locked(found->second);
             self->timer_cv_.notify_one(); self->execution_cv_.notify_all();
         };
-        task->state->rescheduler = [runtime, weak](std::chrono::steady_clock::time_point deadline) {
-            const auto self = runtime.lock(); const auto task = weak.lock();
-            if (!self || !task) return false;
+        task->state->rescheduler = [runtime, id](std::chrono::steady_clock::time_point deadline) {
+            const auto self = runtime.lock();
+            if (!self) return false;
             std::lock_guard lock(self->core_mutex_);
+            const auto found = self->tasks_.find(id);
+            if (found == self->tasks_.end()) return false;
+            const auto& task = found->second;
             if (!self->accepting_ || task->state->cancelled.load() || task->lifecycle != Lifecycle::Pending) return false;
             --self->queued_; self->enqueue_locked(task, deadline); if (task->repeating && task->repeat_mode == RepeatMode::FixedRate) task->rate_cursor = deadline;
             self->timer_cv_.notify_one(); return true;
