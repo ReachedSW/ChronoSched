@@ -128,7 +128,7 @@ private:
             { std::unique_lock lock(execution_mutex_); execution_cv_.wait(lock, [this] { return !execution_.empty() || timer_finished_; }); if (execution_.empty()) return; entry = execution_.front(); execution_.pop_front(); }
             if (!begin_execution(entry)) continue;
             try { entry.task->callback(); } catch (...) { ++failures_; report_exception(entry.task->id, std::current_exception()); }
-            report_completion(entry.task, entry.deadline);
+            report_completion(std::move(entry.task), entry.deadline);
         }
     }
     bool begin_execution(const QueueEntry& entry) {
@@ -138,11 +138,11 @@ private:
     }
     void report_exception(TaskId id, std::exception_ptr exception) noexcept { ErrorHandler handler; { std::lock_guard lock(core_mutex_); handler = error_handler_; } if (handler) try { handler(id, exception); } catch (...) {} }
     struct Completion { std::shared_ptr<Task> task; std::chrono::steady_clock::time_point deadline, completed_at; };
-    void report_completion(const std::shared_ptr<Task>& task, std::chrono::steady_clock::time_point deadline) {
+    void report_completion(std::shared_ptr<Task> task, std::chrono::steady_clock::time_point deadline) {
         std::lock_guard lock(core_mutex_); --running_; const auto now = std::chrono::steady_clock::now();
         if (shutdown_requested_ && (task->repeating || !drain_)) { task->lifecycle = task->state->cancelled.load() ? Lifecycle::Cancelled : Lifecycle::Completed; tasks_.erase(task->id); }
         else if (timer_finished_) { task->lifecycle = Lifecycle::Completed; tasks_.erase(task->id); }
-        else { completions_.push_back({task, deadline, now}); timer_cv_.notify_one(); }
+        else { completions_.push_back({std::move(task), deadline, now}); timer_cv_.notify_one(); }
     }
     void process_completions_locked() {
         while (!completions_.empty()) { const auto completion = std::move(completions_.front()); completions_.pop_front(); const auto& task = completion.task;

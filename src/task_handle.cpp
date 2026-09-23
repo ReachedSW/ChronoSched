@@ -6,9 +6,7 @@ TaskHandle::TaskHandle(TaskId id, std::shared_ptr<detail::TaskState> state) noex
     : id_(id), state_(std::move(state)) {}
 
 void TaskHandle::cancel() const noexcept {
-    if (!state_ || state_->cancelled.exchange(true, std::memory_order_acq_rel)) {
-        return;
-    }
+    if (!state_) return;
 
     std::function<void()> notifier;
     {
@@ -16,6 +14,7 @@ void TaskHandle::cancel() const noexcept {
         notifier = state_->cancellation_notifier;
     }
     if (notifier) notifier();
+    else state_->cancelled.store(true, std::memory_order_release);
 }
 
 bool TaskHandle::is_cancelled() const noexcept {
