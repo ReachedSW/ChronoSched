@@ -24,4 +24,10 @@ TaskId TaskHandle::id() const noexcept {
     return id_;
 }
 
+bool TaskHandle::reschedule_at(std::chrono::steady_clock::time_point deadline) const {
+    if (!state_ || state_->cancelled.load(std::memory_order_acquire)) return false;
+    std::lock_guard lock(state_->notifier_mutex);
+    return state_->rescheduler && state_->rescheduler(deadline);
+}
+
 } // namespace chronosched
