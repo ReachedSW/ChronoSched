@@ -5,20 +5,42 @@ on:
   pull_request:
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  build:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc, clang]
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+          - os: ubuntu-latest
+            compiler: clang
+          - os: windows-latest
+            compiler: msvc
+          - os: macos-latest
+            compiler: clang
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        env:
-          CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
-          CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+        shell: bash
+        run: |
+          if [ "${{ matrix.compiler }}" = clang ]; then export CXX=clang++; fi
+          cmake -S . -B build -DCHRONOSCHED_BUILD_TESTS=ON -DCHRONOSCHED_BUILD_EXAMPLES=ON
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config Debug
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build -C Debug --output-on-failure
+  sanitizers:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitizer: [asan, tsan]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: bash
+        run: |
+          if [ "${{ matrix.sanitizer }}" = asan ]; then option=CHRONOSCHED_ENABLE_ASAN; else option=CHRONOSCHED_ENABLE_TSAN; fi
+          cmake -S . -B build-${{ matrix.sanitizer }} -DCMAKE_BUILD_TYPE=Debug -DCHRONOSCHED_BUILD_TESTS=ON -D${option}=ON
+      - name: Build and test
+        run: cmake --build build-${{ matrix.sanitizer }} && ctest --test-dir build-${{ matrix.sanitizer }} --output-on-failure
